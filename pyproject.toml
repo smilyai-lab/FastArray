@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "FastArray"
+version = "0.1.0"
+description = "A compressed array library for AI models - drop-in replacement for NumPy with automatic compression"
+readme = "README.md"
+authors = [{name = "FastArray Development Team", email = "fastarray@example.com"}]
+license = {text = "MIT"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research", 
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules"
+]
+requires-python = ">=3.8"
+dependencies = [
+    "numpy>=1.21.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov>=2.0",
+    "mypy>=0.910",
+    "black>=21.0",
+    "flake8>=3.8",
+]
+scipy = [
+    "scipy>=1.7.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/fastarray/fastarray"
+Repository = "https://github.com/fastarray/fastarray"
+"Bug Reports" = "https://github.com/fastarray/fastarray/issues"
+Documentation = "https://fastarray.readthedocs.io/"
