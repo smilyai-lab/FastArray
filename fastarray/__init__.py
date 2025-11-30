@@ -16,7 +16,9 @@ from . import random
 from . import backend
 from . import index
 from . import memory
+from . import jax_integration
+from . import jax_training_integration
 
 __version__ = "0.1.0"
 __all__ = ["FastArray", "array", "zeros", "ones", "empty", "full",
-           "compress_array", "decompress_array", "backend", "index", "memory"]
+           "compress_array", "decompress_array", "backend", "index", "memory", "jax_integration", "jax_training_integration"]
