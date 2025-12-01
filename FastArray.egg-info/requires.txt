@@ -1,0 +1,11 @@
+numpy>=1.21.0
+
+[dev]
+pytest>=6.0
+pytest-cov>=2.0
+mypy>=0.910
+black>=21.0
+flake8>=3.8
+
+[scipy]
+scipy>=1.7.0
