@@ -11,18 +11,18 @@ with open(os.path.join(this_directory, 'README.md'), encoding='utf-8') as f:
 
 setup(
     name="FastArray",
-    version="1.1.0",
-    author="FastArray Development Team @ smilyai-labs",
+    version="1.0.0",
+    author="FastArray Development Team",
     author_email="fastarray@example.com",
-    description="A compressed array library for AI models - drop-in replacement for NumPy with automatic compression",
+    description="Advanced compressed array library for AI models with extreme compression and TPU/GPU/CPU optimization - drop-in replacement for NumPy",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/fastarray/fastarray",
     packages=find_packages(),
     classifiers=[
-        "Development Status :: 3 - Alpha",
+        "Development Status :: 5 - Production/Stable",
         "Intended Audience :: Developers",
-        "Intended Audience :: Science/Research", 
+        "Intended Audience :: Science/Research",
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
         "Programming Language :: Python :: 3",
@@ -35,13 +35,14 @@ setup(
         "Topic :: Scientific/Engineering :: Mathematics",
         "Topic :: Software Development",
         "Topic :: Software Development :: Libraries",
-        "Topic :: Software Development :: Libraries :: Python Modules"
+        "Topic :: Software Development :: Libraries :: Python Modules",
+        "Topic :: System :: Hardware :: Symmetric Multi-Processing",
+        "Topic :: Utilities"
     ],
     python_requires='>=3.8',
     install_requires=[
         "numpy>=1.21.0",
         "blosc>=1.0.0; python_implementation != 'PyPy'",
-        "scipy>=1.7.0; extra == 'scipy'",
     ],
     extras_require={
         'dev': [
@@ -51,14 +52,32 @@ setup(
             'black>=21.0',
             'flake8>=3.8',
         ],
+        'jax': [
+            'jax>=0.4.0',
+            'jaxlib>=0.4.0',
+            'flax>=0.7.0',
+            'optax>=0.1.0',
+        ],
+        'pytorch': [
+            'torch>=1.9.0',
+        ],
         'scipy': [
             'scipy>=1.7.0',
         ],
+        'full': [
+            'jax>=0.4.0',
+            'jaxlib>=0.4.0',
+            'flax>=0.7.0',
+            'optax>=0.1.0',
+            'torch>=1.9.0',
+            'scipy>=1.7.0',
+        ],
     },
-    keywords="numpy array compression machine-learning ai tensor",
+    keywords="numpy array compression machine-learning ai tensor tpu gpu cpu quantization sparse low-rank bfloat16 int8",
     project_urls={
         "Bug Reports": "https://github.com/fastarray/fastarray/issues",
         "Source": "https://github.com/fastarray/fastarray",
         "Documentation": "https://fastarray.readthedocs.io/",
+        "TPU Optimization Guide": "https://github.com/fastarray/fastarray/blob/main/TPU_GUIDE.md",
     }
 )
