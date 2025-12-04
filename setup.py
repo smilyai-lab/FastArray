@@ -11,8 +11,8 @@ with open(os.path.join(this_directory, 'README.md'), encoding='utf-8') as f:
 
 setup(
     name="FastArray",
-    version="1.0.0",
-    author="FastArray Development Team",
+    version="1.1.0",
+    author="FastArray Development Team @ smilyai",
     author_email="fastarray@example.com",
     description="Advanced compressed array library for AI models with extreme compression and TPU/GPU/CPU optimization - drop-in replacement for NumPy",
     long_description=long_description,
