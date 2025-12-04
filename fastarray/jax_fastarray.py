@@ -286,9 +286,12 @@ def create_fastarray_for_tpu_compression(data, dtype=None, compression="auto", c
     return fa.array(data, compression=compression, compression_aggressiveness=compression_aggressiveness)
 
 
-def create_extreme_compression_state(model, rng, dummy_input_shape, config, mesh, sharding_rules, optimizer, compression_aggressiveness=CompressionAggressiveness.EXTREME):
+def create_extreme_compression_state(model, rng, dummy_input_shape, config, mesh, sharding_rules, optimizer,
+                                   compression_aggressiveness=CompressionAggressiveness.EXTREME,
+                                   device_type='tpu', num_devices=8):
     """
     Create a training state with extreme FastArray compression for maximum TPU performance
+    Supports single and multi-device configurations (e.g., TPU-v5e-8 with 8 chips)
     """
     # Initialize model parameters
     import jax.numpy as jnp
@@ -296,17 +299,19 @@ def create_extreme_compression_state(model, rng, dummy_input_shape, config, mesh
     variables = model.init(rng, dummy_input, training=False)
     params = variables['params']
 
-    # Compress parameters using extreme FastArray compression
+    # Compress parameters using device-optimized FastArray compression
     def compress_param(param):
         if isinstance(param, jnp.ndarray):
-            # Convert JAX array to numpy, then to FastArray with extreme compression for TPU
+            # Convert JAX array to numpy, then to FastArray with device-optimized compression
             np_param = np.array(param)
-            fa_param = fa.array(np_param, compression="hybrid", compression_aggressiveness=compression_aggressiveness)
+            fa_param = fa.array(np_param, compression="hybrid",
+                               compression_aggressiveness=compression_aggressiveness,
+                               device_type=device_type, num_devices=num_devices)
             return fa_param
         return param
-        
+
     compressed_params = tree_util.tree_map(compress_param, params)
-    
+
     # Calculate compression statistics
     def calculate_size(param):
         if isinstance(param, fa.FastArray):
@@ -315,14 +320,14 @@ def create_extreme_compression_state(model, rng, dummy_input_shape, config, mesh
             return param.size * param.dtype.itemsize
         else:
             return 0
-    
+
     original_size = sum(x.size * x.dtype.itemsize for x in tree_util.tree_leaves(params))
     compressed_size = sum(calculate_size(x) for x in tree_util.tree_leaves(compressed_params))
-    
+
     compression_ratio = original_size / compressed_size if compressed_size > 0 else 0
     saved_mb = (original_size - compressed_size) / 1024 / 1024
-    
-    print(f"🔄 Extreme compression: {original_size/1024/1024:.2f}MB → {compressed_size/1024/1024:.2f}MB ({compression_ratio:.1f}x) | Saved {saved_mb:.2f}MB")
+
+    print(f"🔄 Device-optimized compression ({device_type}x{num_devices}): {original_size/1024/1024:.2f}MB → {compressed_size/1024/1024:.2f}MB ({compression_ratio:.1f}x) | Saved {saved_mb:.2f}MB")
 
     # Convert compressed parameters back to sharded JAX arrays for training (with BF16)
     def decompress_to_jax_with_bf16(param):
@@ -337,7 +342,7 @@ def create_extreme_compression_state(model, rng, dummy_input_shape, config, mesh
             return param.astype(jnp.bfloat16)  # Ensure BF16 for TPU
         else:
             return jnp.array(param, dtype=jnp.bfloat16)  # Convert and ensure BF16
-    
+
     jax_params = tree_util.tree_map(decompress_to_jax_with_bf16, compressed_params)
     params = shard_params_with_fastarray({'dummy': jax_params}, mesh, sharding_rules)['dummy']  # Properly shard the parameters
 
@@ -347,13 +352,17 @@ def create_extreme_compression_state(model, rng, dummy_input_shape, config, mesh
     class CompressedTrainState(TrainState):
         dropout_rng: jax.random.PRNGKey
         compressed_params: dict = None  # Store original compressed params
+        device_type: str = device_type  # Track the target device type
+        num_devices: int = num_devices  # Track number of devices
 
     state = CompressedTrainState.create(
         apply_fn=model.apply,
         params=params,
         tx=optimizer,
         dropout_rng=rng,
-        compressed_params=compressed_params  # Keep compressed version for saving
+        compressed_params=compressed_params,  # Keep compressed version for saving
+        device_type=device_type,
+        num_devices=num_devices
     )
 
     return state

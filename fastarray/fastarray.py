@@ -31,12 +31,13 @@ class CompressionAggressiveness:
 class FastArray:
     """
     A compressed array class that provides a drop-in replacement for NumPy arrays
-    with advanced compression and optimized operations for maximum speed.
+    with advanced compression and optimized operations for maximum speed across devices.
+    Automatically selects optimal dtype based on target device (TPU, GPU, CPU).
     """
 
     def __init__(self, data, dtype=None, copy=True, order='K', subok=False, ndmin=0,
-                 compression="auto", compression_aggressiveness=CompressionAggressiveness.BALANCED, 
-                 **kwargs):
+                 compression="auto", compression_aggressiveness=CompressionAggressiveness.BALANCED,
+                 device_type="auto", num_devices=1, **kwargs):
         """
         Initialize a FastArray.
 
@@ -44,6 +45,8 @@ class FastArray:
         - data: array_like, input data
         - compression: compression algorithm ("auto", "quantization", "int8_quant", "bf16_quant", "sparse", "low_rank", "hybrid")
         - compression_aggressiveness: level of compression aggressiveness
+        - device_type: target device ("auto", "tpu", "gpu", "cpu")
+        - num_devices: number of target devices (for multi-device optimization)
         """
         # First convert to numpy array to normalize input
         self._numpy_array = np.array(data, dtype=dtype, copy=copy, order=order,
@@ -51,10 +54,15 @@ class FastArray:
 
         # Store compression settings
         self.compression_aggressiveness = compression_aggressiveness
+        self.device_type = self._detect_device_type() if device_type == "auto" else device_type
+        self.num_devices = num_devices
 
-        # Determine compression type
+        # Optimize dtype based on device
+        self._numpy_array = self._optimize_dtype_for_device(self._numpy_array)
+
+        # Determine compression type based on device and data characteristics
         if compression == "auto":
-            compression = self._choose_compression(self._numpy_array, compression_aggressiveness)
+            compression = self._choose_compression(self._numpy_array, compression_aggressiveness, self.device_type)
 
         self.compression_type = compression
         self._original_shape = self._numpy_array.shape
@@ -63,27 +71,96 @@ class FastArray:
         # Apply compression
         self._compressed_data = self._compress(self._numpy_array, self.compression_type, self.compression_aggressiveness)
 
-    def _choose_compression(self, arr, aggressiveness):
-        """Choose appropriate compression based on array characteristics and desired aggressiveness."""
-        # For extreme compression, use hybrid approach
-        if aggressiveness == CompressionAggressiveness.EXTREME:
+    def _detect_device_type(self):
+        """Auto-detect the target device type."""
+        try:
+            import jax
+            devices = jax.devices()
+            if devices and any('tpu' in str(d).lower() for d in devices):
+                return 'tpu'
+            elif devices and any('gpu' in str(d).lower() for d in devices):
+                return 'gpu'
+        except:
+            pass
+
+        try:
+            # Check for CUDA availability (GPU)
+            import torch
+            if torch.cuda.is_available():
+                return 'gpu'
+        except:
+            pass
+
+        # Default to CPU if no other devices detected
+        return 'cpu'
+
+    def _optimize_dtype_for_device(self, arr):
+        """Optimize dtype based on target device."""
+        if arr.dtype not in [np.float16, np.float32, np.float64]:
+            return arr  # Non-floating point dtypes don't need optimization
+
+        if self.device_type == 'tpu':
+            # For TPU, optimize for bfloat16 or INT8 based on compression settings
+            if self.compression_aggressiveness >= CompressionAggressiveness.AGGRESSIVE:
+                # For aggressive settings, prepare for INT8 quantization
+                if arr.dtype == np.float64:
+                    return arr.astype(np.float32)
+                return arr
+            else:
+                # For conservative settings, use bfloat16
+                if arr.dtype == np.float64:
+                    return arr.astype(np.float32)
+                return arr
+        elif self.device_type == 'gpu':
+            # For GPU, use float16 for smaller models or when memory is tight
+            if arr.dtype == np.float64 or self.compression_aggressiveness >= CompressionAggressiveness.AGGRESSIVE:
+                return arr.astype(np.float32)
+            return arr
+        else:  # CPU
+            # For CPU, keep higher precision to avoid accuracy loss from quantization
+            return arr
+
+    def _choose_compression(self, arr, aggressiveness, device_type=None):
+        """Choose appropriate compression based on array characteristics and device."""
+        device_type = device_type or self.device_type
+
+        # For extreme compression on TPU, use hybrid approach
+        if aggressiveness == CompressionAggressiveness.EXTREME and device_type == 'tpu':
+            # TPU v5e-8 can handle complex operations efficiently, so hybrid works well
             return CompressionType.HYBRID
-        
-        # For sparse arrays, always prefer sparse compression regardless of aggressiveness
+
+        # For GPU with extreme compression, use INT8 when possible
+        if aggressiveness == CompressionAggressiveness.EXTREME and device_type == 'gpu':
+            return CompressionType.INT8_QUANT
+
+        # For CPU with extreme compression, low-rank might be more beneficial
+        if aggressiveness == CompressionAggressiveness.EXTREME and device_type == 'cpu':
+            return CompressionType.LOW_RANK
+
+        # For sparse arrays, always prefer sparse compression regardless of device
         if np.count_nonzero(arr) / arr.size < 0.1:  # Less than 10% non-zero
             return CompressionType.SPARSE
 
-        # For float arrays and high aggressiveness, consider multiple approaches
+        # For float arrays and high aggressiveness, consider device-specific approaches
         if arr.dtype in [np.float32, np.float64]:
             if aggressiveness == CompressionAggressiveness.EXTREME:
-                # For extreme compression on TPU, use INT8 or low-rank decomposition
-                return CompressionType.LOW_RANK  # For matrices, low-rank is extremely effective
+                # For extreme compression on TPU, use low-rank for matrices, INT8 for others
+                if device_type == 'tpu' and len(arr.shape) == 2:
+                    return CompressionType.LOW_RANK
+                else:
+                    return CompressionType.INT8_QUANT
             elif aggressiveness >= CompressionAggressiveness.AGGRESSIVE:
-                # Use INT8 quantization with AQT-style scaling
-                return CompressionType.INT8_QUANT
+                # Use INT8 quantization with AQT-style scaling for TPU, others use BF16
+                if device_type == 'tpu':
+                    return CompressionType.INT8_QUANT
+                else:
+                    return CompressionType.BF16_QUANT
             elif aggressiveness >= CompressionAggressiveness.BALANCED:
                 # Use BF16 quantization for TPU efficiency
-                return CompressionType.BF16_QUANT
+                if device_type == 'tpu':
+                    return CompressionType.BF16_QUANT
+                else:
+                    return CompressionType.QUANTIZATION
             else:
                 # Conservative approach
                 return CompressionType.QUANTIZATION
@@ -925,38 +1002,48 @@ class FastArray:
                         compression_aggressiveness=self.compression_aggressiveness)
 
 
-# Convenience functions that return FastArray objects with aggressive compression options
-def array(data, dtype=None, copy=True, order='K', subok=False, ndmin=0, 
-          compression="auto", compression_aggressiveness=CompressionAggressiveness.BALANCED, **kwargs):
-    """Create a FastArray with specified compression level."""
+# Convenience functions that return FastArray objects with device-aware compression options
+def array(data, dtype=None, copy=True, order='K', subok=False, ndmin=0,
+          compression="auto", compression_aggressiveness=CompressionAggressiveness.BALANCED,
+          device_type="auto", num_devices=1, **kwargs):
+    """Create a FastArray with specified compression level and device optimization."""
     return FastArray(data, dtype=dtype, copy=copy, order=order, subok=subok,
-                     ndmin=ndmin, compression=compression, 
-                     compression_aggressiveness=compression_aggressiveness, **kwargs)
+                     ndmin=ndmin, compression=compression,
+                     compression_aggressiveness=compression_aggressiveness,
+                     device_type=device_type, num_devices=num_devices, **kwargs)
 
-def zeros(shape, dtype=float, order='C', 
-          compression="auto", compression_aggressiveness=CompressionAggressiveness.BALANCED):
+def zeros(shape, dtype=float, order='C',
+          compression="auto", compression_aggressiveness=CompressionAggressiveness.BALANCED,
+          device_type="auto", num_devices=1):
     """Return a new FastArray of given shape and type, filled with zeros."""
     arr = np.zeros(shape, dtype=dtype, order=order)
-    return FastArray(arr, compression=compression, 
-                    compression_aggressiveness=compression_aggressiveness)
+    return FastArray(arr, compression=compression,
+                    compression_aggressiveness=compression_aggressiveness,
+                    device_type=device_type, num_devices=num_devices)
 
-def ones(shape, dtype=float, order='C', 
-         compression="auto", compression_aggressiveness=CompressionAggressiveness.BALANCED):
+def ones(shape, dtype=float, order='C',
+         compression="auto", compression_aggressiveness=CompressionAggressiveness.BALANCED,
+         device_type="auto", num_devices=1):
     """Return a new FastArray of given shape and type, filled with ones."""
     arr = np.ones(shape, dtype=dtype, order=order)
-    return FastArray(arr, compression=compression, 
-                    compression_aggressiveness=compression_aggressiveness)
+    return FastArray(arr, compression=compression,
+                    compression_aggressiveness=compression_aggressiveness,
+                    device_type=device_type, num_devices=num_devices)
 
-def empty(shape, dtype=float, order='C', 
-          compression="auto", compression_aggressiveness=CompressionAggressiveness.BALANCED):
+def empty(shape, dtype=float, order='C',
+          compression="auto", compression_aggressiveness=CompressionAggressiveness.BALANCED,
+          device_type="auto", num_devices=1):
     """Return a new FastArray of given shape and type, without initializing entries."""
     arr = np.empty(shape, dtype=dtype, order=order)
-    return FastArray(arr, compression=compression, 
-                    compression_aggressiveness=compression_aggressiveness)
+    return FastArray(arr, compression=compression,
+                    compression_aggressiveness=compression_aggressiveness,
+                    device_type=device_type, num_devices=num_devices)
 
-def full(shape, fill_value, dtype=None, order='C', 
-         compression="auto", compression_aggressiveness=CompressionAggressiveness.BALANCED):
+def full(shape, fill_value, dtype=None, order='C',
+         compression="auto", compression_aggressiveness=CompressionAggressiveness.BALANCED,
+         device_type="auto", num_devices=1):
     """Return a new FastArray of given shape and type, filled with fill_value."""
     arr = np.full(shape, fill_value, dtype=dtype, order=order)
-    return FastArray(arr, compression=compression, 
-                    compression_aggressiveness=compression_aggressiveness)
+    return FastArray(arr, compression=compression,
+                    compression_aggressiveness=compression_aggressiveness,
+                    device_type=device_type, num_devices=num_devices)
